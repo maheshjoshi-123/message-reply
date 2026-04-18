@@ -1,12 +1,12 @@
-# Messenger DeepSeek Bot
+# Messenger Thesis Bot
 
-A clean, modular Node.js backend for a Facebook Messenger auto-reply bot for a thesis support service page. It runs locally first, receives Messenger webhook events, keeps small in-process per-user memory, detects language style, uses lightweight response-pattern guidance, generates short replies with DeepSeek, and sends replies back through the Facebook Messenger Send API.
+A clean, modular Node.js backend for a Facebook Messenger auto-reply bot for a thesis support service page. It runs locally first, receives Messenger webhook events, keeps small in-process per-user memory, detects language style, uses lightweight response-pattern guidance, generates short replies with Gemini first, falls back to DeepSeek only if Gemini quota is exhausted, and sends replies back through the Facebook Messenger Send API.
 
 ## Overview
 
 Event flow:
 
-`Messenger -> webhook -> memory/language/pattern logic -> DeepSeek -> Send API -> reply`
+`Messenger -> webhook -> memory/language/pattern logic -> Gemini -> DeepSeek fallback on Gemini quota exhaustion -> Send API -> reply`
 
 Main features:
 
@@ -17,7 +17,8 @@ Main features:
 - Concise Roman Nepali-first reply shaping
 - Unsupported-service guard
 - Similar-question response-pattern guidance
-- DeepSeek reply generation with compact prompts
+- Gemini-first reply generation with compact prompts
+- DeepSeek fallback when Gemini quota is exhausted
 - Facebook Messenger Send API text and image reply
 - Duplicate-event protection, debounce, timeout, and retry handling
 
@@ -27,7 +28,8 @@ Main features:
 - A Meta app with Messenger configured
 - A Facebook Page connected to your app
 - A valid Page access token
-- A DeepSeek API key
+- A Gemini API key
+- A DeepSeek API key for fallback
 - `ngrok` for local webhook exposure
 
 ## Install
@@ -52,6 +54,9 @@ Fill these values in `.env`:
 - `PAGE_ACCESS_TOKEN`
 - `PUBLIC_BASE_URL`
 - `MESSENGER_API_BASE_URL`
+- `GEMINI_API_KEY`
+- `GEMINI_BASE_URL`
+- `GEMINI_MODEL`
 - `DEEPSEEK_API_KEY`
 - `DEEPSEEK_BASE_URL`
 - `DEEPSEEK_MODEL`
@@ -141,7 +146,7 @@ The bot:
 - checks common intent patterns such as greeting, pricing, proposal only, chapter 4 and 5, formatting only, topic support, and supervisor feedback
 - can send a sample public image when users ask for sample photos or images
 - serves deployable image assets from `/media/thesis-master/...`
-- builds a compact prompt for DeepSeek
+- builds a compact prompt for Gemini or DeepSeek
 - replies in the user's language style
 
 Memory is in-process only and resets when the server restarts.
@@ -176,7 +181,11 @@ Memory is in-process only and resets when the server restarts.
 
 - Make sure the app is connected to the Page and subscribed to `messages`.
 
-### DeepSeek API failure
+### Gemini API failure
+
+- Check `GEMINI_API_KEY`, `GEMINI_BASE_URL`, and `GEMINI_MODEL`.
+
+### DeepSeek fallback failure
 
 - Check `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, and `DEEPSEEK_MODEL`.
 
@@ -200,6 +209,7 @@ This project includes a `render.yaml` file so it is ready for GitHub-based deplo
 - `PAGE_ACCESS_TOKEN`
 - `PUBLIC_BASE_URL`
 - `MESSENGER_API_BASE_URL`
+- `GEMINI_API_KEY`
 - `DEEPSEEK_API_KEY`
 7. Deploy the service.
 8. After deployment, open the Render service URL and confirm:
@@ -237,6 +247,9 @@ Set these in Render:
 - `PAGE_ACCESS_TOKEN=your_meta_page_access_token`
 - `PUBLIC_BASE_URL=https://your-service.onrender.com`
 - `MESSENGER_API_BASE_URL=https://graph.facebook.com/v23.0`
+- `GEMINI_API_KEY=your_gemini_api_key`
+- `GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta`
+- `GEMINI_MODEL=gemini-2.5-flash`
 - `DEEPSEEK_API_KEY=your_deepseek_api_key`
 - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
 - `DEEPSEEK_MODEL=deepseek-chat`

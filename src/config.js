@@ -28,11 +28,26 @@ function parseNumber(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function readOptionalString(value, fallback = "") {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || fallback;
+}
+
 const config = {
   appEnv: process.env.APP_ENV || "development",
   port: parseNumber(process.env.PORT, 3000),
   verifyToken: process.env.VERIFY_TOKEN.trim(),
   pageAccessToken: process.env.PAGE_ACCESS_TOKEN.trim(),
+  geminiApiKey: readOptionalString(process.env.GEMINI_API_KEY),
+  geminiBaseUrl: readOptionalString(
+    process.env.GEMINI_BASE_URL,
+    "https://generativelanguage.googleapis.com/v1beta"
+  ),
+  geminiModel: readOptionalString(process.env.GEMINI_MODEL, "gemini-2.5-flash"),
   deepseekApiKey: process.env.DEEPSEEK_API_KEY.trim(),
   deepseekBaseUrl: process.env.DEEPSEEK_BASE_URL.trim(),
   deepseekModel: process.env.DEEPSEEK_MODEL.trim(),

@@ -5,6 +5,12 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { createApp } from "../src/server.js";
 import { createWebhookRouter } from "../src/routes/webhook.js";
+import config from "../src/config.js";
+import {
+  buildGeminiRequestPayload,
+  generateReply,
+  isGeminiQuotaExhausted,
+} from "../src/services/deepseek.js";
 import { detectLanguageStyle } from "../src/utils/detectLanguageStyle.js";
 import { extractMessage } from "../src/utils/extractMessage.js";
 import { analyseImage } from "../src/services/imageAnalysis.js";
@@ -267,6 +273,143 @@ test("image analysis returns safe fallback when provider is none", async () => {
 test("media library returns sample image for sample intent", () => {
   assert.ok(getSampleImage());
   assert.equal(getMediaByIntent("sample_image")?.intent, "sample_image");
+});
+
+test("gemini request payload keeps system instruction separate", () => {
+  const payload = buildGeminiRequestPayload([
+    { role: "system", content: "System rule." },
+    { role: "user", content: "Hello" },
+    { role: "assistant", content: "Hi there" },
+    { role: "user", content: "Need thesis help" },
+  ]);
+
+  assert.equal(payload.system_instruction.parts[0].text, "System rule.");
+  assert.equal(payload.contents.length, 3);
+  assert.equal(payload.contents[0].role, "user");
+  assert.equal(payload.contents[1].role, "model");
+  assert.equal(payload.contents[2].parts[0].text, "Need thesis help");
+});
+
+test("gemini quota exhaustion detection matches quota errors only", () => {
+  assert.equal(
+    isGeminiQuotaExhausted({
+      status: 429,
+      message: "You exceeded your current quota.",
+      body: {
+        error: {
+          status: "RESOURCE_EXHAUSTED",
+        },
+      },
+    }),
+    true
+  );
+
+  assert.equal(
+    isGeminiQuotaExhausted({
+      status: 500,
+      message: "Internal error",
+    }),
+    false
+  );
+});
+
+test("generateReply falls back to DeepSeek only when Gemini quota is exhausted", async () => {
+  const previousGeminiApiKey = config.geminiApiKey;
+  const previousGeminiModel = config.geminiModel;
+  const previousGeminiBaseUrl = config.geminiBaseUrl;
+
+  config.geminiApiKey = "gemini-test-key";
+  config.geminiModel = "gemini-2.5-flash";
+  config.geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta";
+
+  try {
+    const reply = await generateReply({
+      currentText: "Need thesis help",
+      languageStyle: "english",
+      promptMessages: [
+        { role: "system", content: "Reply briefly." },
+        { role: "user", content: "Need thesis help" },
+      ],
+      fetchImpl: async () => ({
+        ok: false,
+        status: 429,
+        async text() {
+          return JSON.stringify({
+            error: {
+              code: 429,
+              status: "RESOURCE_EXHAUSTED",
+              message: "You exceeded your current quota.",
+            },
+          });
+        },
+      }),
+      deepseekRequest: async () => ({
+        choices: [
+          {
+            message: {
+              content: "DeepSeek fallback reply.",
+            },
+          },
+        ],
+      }),
+    });
+
+    assert.equal(reply, "DeepSeek fallback reply.");
+  } finally {
+    config.geminiApiKey = previousGeminiApiKey;
+    config.geminiModel = previousGeminiModel;
+    config.geminiBaseUrl = previousGeminiBaseUrl;
+  }
+});
+
+test("generateReply uses Gemini response when quota is available", async () => {
+  const previousGeminiApiKey = config.geminiApiKey;
+  const previousGeminiModel = config.geminiModel;
+  const previousGeminiBaseUrl = config.geminiBaseUrl;
+
+  config.geminiApiKey = "gemini-test-key";
+  config.geminiModel = "gemini-2.5-flash";
+  config.geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta";
+
+  try {
+    let deepseekCalled = false;
+    const reply = await generateReply({
+      currentText: "Need thesis help",
+      languageStyle: "english",
+      promptMessages: [
+        { role: "system", content: "Reply briefly." },
+        { role: "user", content: "Need thesis help" },
+      ],
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        async text() {
+          return JSON.stringify({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: "Gemini reply." }],
+                },
+              },
+            ],
+          });
+        },
+      }),
+      deepseekRequest: async () => {
+        deepseekCalled = true;
+        return {
+          choices: [{ message: { content: "Should not be used." } }],
+        };
+      },
+    });
+
+    assert.equal(reply, "Gemini reply.");
+    assert.equal(deepseekCalled, false);
+  } finally {
+    config.geminiApiKey = previousGeminiApiKey;
+    config.geminiModel = previousGeminiModel;
+    config.geminiBaseUrl = previousGeminiBaseUrl;
+  }
 });
 
 test("app serves root, health, and webhook verification", async () => {

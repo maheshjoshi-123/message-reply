@@ -16,6 +16,12 @@ services:
         sync: false
       - key: MESSENGER_API_BASE_URL
         value: https://graph.facebook.com/v23.0
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: DEEPSEEK_API_KEY
         sync: false
       - key: DEEPSEEK_BASE_URL
