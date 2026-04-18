@@ -8,6 +8,7 @@ import {
   addInboundMedia,
   addUserMessage,
   getLanguageStyle,
+  getRecentMessages,
   setLanguageStyle,
 } from "../services/memory.js";
 import {
@@ -51,6 +52,7 @@ const defaultDependencies = {
   addInboundMedia,
   addUserMessage,
   getLanguageStyle,
+  getRecentMessages,
   setLanguageStyle,
   getSampleImage,
   listMedia,
@@ -221,6 +223,10 @@ export function createWebhookRouter(overrides = {}) {
       }
 
       const matchedPattern = deps.getBestPatternMatch(extracted.text);
+      const recentMessages = deps.getRecentMessages(
+        extracted.senderId,
+        deps.config.maxMemoryMessages
+      );
       const resolvedMedia = deps.resolveMediaForRequest({
         text: extracted.text,
         matchedIntent: matchedPattern?.intent ?? null,
@@ -319,6 +325,7 @@ export function createWebhookRouter(overrides = {}) {
         text: extracted.text,
         languageStyle: detectedLanguageStyle,
         matchedPattern,
+        recentMessages,
       });
 
       if (directReply) {

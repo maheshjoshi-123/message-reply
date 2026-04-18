@@ -34,6 +34,9 @@ function createMemoryHarness() {
     getLanguageStyle(userId) {
       return state.languageStyles.get(userId) || "english";
     },
+    getRecentMessages(userId, limit = 8) {
+      return ensure(state.messages, userId).slice(-limit);
+    },
     setLanguageStyle(userId, style) {
       state.languageStyles.set(userId, style);
     },
@@ -91,6 +94,7 @@ function createWebhookApp(overrides = {}) {
     },
     processingState: overrides.processingState,
     getLanguageStyle: memory.getLanguageStyle,
+    getRecentMessages: memory.getRecentMessages,
     setLanguageStyle: memory.setLanguageStyle,
     addUserMessage: memory.addUserMessage,
     addAssistantMessage: memory.addAssistantMessage,
@@ -423,6 +427,134 @@ test("topic guidance question does not send an image", async () => {
   assert.equal(harness.sentTextAndImages.length, 0);
   assert.equal(harness.sentTexts.length, 1);
   assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("topic follow-up uses recent conversation memory", async () => {
+  const harness = createWebhookApp({
+    deps: {
+      getBestPatternMatch: (text) => {
+        if (text.includes("topic")) {
+          return {
+            intent: "topic_support",
+            guidance: "Help the user with topic support.",
+          };
+        }
+
+        return null;
+      },
+    },
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["topic", "mba finance ko lagi"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `topic-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[0].text, /topic support/i);
+  assert.match(harness.sentTexts[1].text, /MBA finance/i);
+  assert.match(harness.sentTexts[1].text, /topic/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("price follow-up uses recent conversation memory", async () => {
+  const harness = createWebhookApp({
+    deps: {
+      getBestPatternMatch: (text) => {
+        if (text.includes("kati")) {
+          return {
+            intent: "exact_price_unclear_scope",
+            guidance: "Ask for subject to guide pricing.",
+          };
+        }
+
+        return null;
+      },
+    },
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["price kati ho", "med"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `price-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /MEd/i);
+  assert.match(harness.sentTexts[1].text, /20,000|20000/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("conversation memory stays isolated per sender", async () => {
+  const harness = createWebhookApp({
+    deps: {
+      getBestPatternMatch: (text) => {
+        if (text.includes("topic")) {
+          return {
+            intent: "topic_support",
+            guidance: "Help the user with topic support.",
+          };
+        }
+
+        return null;
+      },
+    },
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const events = [
+      { mid: "iso-1", senderId: "user-a", text: "topic" },
+      { mid: "iso-2", senderId: "user-b", text: "mba finance ko lagi" },
+    ];
+
+    for (const event of events) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(buildTextWebhook(event)),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[0].text, /topic/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /topic/i);
+  assert.match(harness.sentTexts[1].text, /MBA/i);
 });
 
 test("what to do next question stays text only", async () => {
