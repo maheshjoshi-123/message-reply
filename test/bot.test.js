@@ -1059,6 +1059,94 @@ test("scope follow-up treats only proposal as scope answer", async () => {
   assert.doesNotMatch(harness.sentTexts[1].text, /for only/i);
 });
 
+test("scope follow-up treats full as full thesis answer and keeps deadline contextual", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba", "full", "1 month"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `scope-full-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 3);
+  assert.match(harness.sentTexts[1].text, /deadline/i);
+  assert.match(harness.sentTexts[2].text, /timeline|manageable|milcha|possible/i);
+  assert.doesNotMatch(harness.sentTexts[2].text, /subject and required work/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("deadline before scope choice asks for scope instead of asking subject again", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba", "1 month"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `scope-deadline-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /full thesis|proposal/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /subject|required work/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("repeating the same subject while scope is pending asks for the missing choice", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba", "mba"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `scope-repeat-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /choose one|full thesis|proposal only/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /thesis support is available/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
 test("scope clarification explains previous choice question", async () => {
   const harness = createWebhookApp();
 

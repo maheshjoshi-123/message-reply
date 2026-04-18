@@ -242,6 +242,19 @@ function isAffirmative(text) {
   return includesAny(normalize(text), affirmativeWords);
 }
 
+function detectFullThesisChoice(text) {
+  const normalized = normalize(text);
+  return ["full", "full thesis", "complete", "complete thesis"].includes(normalized);
+}
+
+function isSameKnownSubjectAsConversation(subject, conversation) {
+  return Boolean(
+    subject &&
+      conversation.subject &&
+      subject.label === conversation.subject.label
+  );
+}
+
 function detectHowManyQuestion(text) {
   const normalized = normalize(text);
   return normalized.includes("how many") && includesAny(normalized, ["thesis", "proposal"]);
@@ -797,6 +810,23 @@ export function buildDirectReply({
     };
   }
 
+  if (conversation.lastAsked === "scope" && detectFullThesisChoice(text)) {
+    const activeSubject = subject || conversation.subject;
+
+    return {
+      reply: fullThesisReply(languageStyle, activeSubject),
+      conversationState: {
+        ...conversation,
+        serviceType: "thesis",
+        subject: activeSubject,
+        subjectTier: activeSubject?.tier || conversation.subjectTier,
+        subjectDisplay: subjectDisplay || conversation.subjectDisplay,
+        subjectPurpose: null,
+        lastAsked: activeSubject ? "deadline" : "subject",
+      },
+    };
+  }
+
   if (conversation.lastAsked === "scope" && isAffirmative(text)) {
     return {
       reply: scopeChoiceReply(languageStyle),
@@ -1031,12 +1061,66 @@ export function buildDirectReply({
     };
   }
 
+  if (
+    conversation.lastAsked === "scope" &&
+    isSameKnownSubjectAsConversation(subject, conversation)
+  ) {
+    return {
+      reply: scopeChoiceReply(languageStyle),
+      conversationState: {
+        ...conversation,
+        subject,
+        subjectTier: subject.tier,
+        subjectDisplay: subjectDisplay || conversation.subjectDisplay || subject.label,
+        lastAsked: "scope",
+      },
+    };
+  }
+
+  if (
+    conversation.lastAsked === "topic_scope" &&
+    isSameKnownSubjectAsConversation(subject, conversation)
+  ) {
+    return {
+      reply: topicScopeChoiceReply(languageStyle),
+      conversationState: {
+        ...conversation,
+        subject,
+        subjectTier: subject.tier,
+        subjectDisplay: subjectDisplay || conversation.subjectDisplay || subject.label,
+        lastAsked: "topic_scope",
+      },
+    };
+  }
+
   if (deadline && conversation.lastAsked === "subject") {
     return {
       reply: askSubjectReply(languageStyle),
       conversationState: {
         ...conversation,
         lastAsked: "subject",
+      },
+    };
+  }
+
+  if (deadline && conversation.lastAsked === "scope") {
+    return {
+      reply: scopeChoiceReply(languageStyle),
+      conversationState: {
+        ...conversation,
+        deadline,
+        lastAsked: "scope",
+      },
+    };
+  }
+
+  if (deadline && conversation.lastAsked === "topic_scope") {
+    return {
+      reply: topicScopeChoiceReply(languageStyle),
+      conversationState: {
+        ...conversation,
+        deadline,
+        lastAsked: "topic_scope",
       },
     };
   }
@@ -1081,7 +1165,13 @@ export function buildDirectReply({
     };
   }
 
-  if (deadline && !subject && !serviceType) {
+  if (
+    deadline &&
+    !subject &&
+    !conversation.subject &&
+    !serviceType &&
+    !conversation.serviceType
+  ) {
     return {
       reply: deadlineWithoutScopeReply(languageStyle),
       conversationState: {
