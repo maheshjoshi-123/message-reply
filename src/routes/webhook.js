@@ -34,8 +34,23 @@ const sampleImageTriggers = [
   "image cha",
   "image cha?",
   "price list",
+  "all photos",
+  "all images",
+  "all posters",
+  "all banners",
 ];
-const imageNouns = ["sample", "pic", "photo", "image", "poster", "banner"];
+const imageNouns = [
+  "sample",
+  "pic",
+  "photo",
+  "photos",
+  "image",
+  "images",
+  "poster",
+  "posters",
+  "banner",
+  "banners",
+];
 const requestWords = [
   "send",
   "show",
@@ -45,6 +60,11 @@ const requestWords = [
   "pathaidinu",
   "dinus",
   "dekhau",
+  "deu",
+  "deuna",
+  "dinu",
+  "dinu na",
+  "pathaideu",
 ];
 
 const errorReplies = {
@@ -88,7 +108,7 @@ function normalizeText(text) {
     .trim();
 }
 
-function detectSampleImageIntent(text) {
+function detectMediaIntent(text, resolvedMedia) {
   const normalized = normalizeText(text);
 
   if (!normalized) {
@@ -101,8 +121,17 @@ function detectSampleImageIntent(text) {
 
   const hasImageNoun = imageNouns.some((word) => normalized.includes(word));
   const hasRequestWord = requestWords.some((word) => normalized.includes(word));
+  const wordCount = normalized.split(" ").filter(Boolean).length;
 
-  return hasImageNoun && hasRequestWord;
+  if (hasImageNoun && (hasRequestWord || Boolean(resolvedMedia))) {
+    return true;
+  }
+
+  if (resolvedMedia && wordCount <= 3) {
+    return true;
+  }
+
+  return false;
 }
 
 function resolvePublicBaseUrl(req, configuredBaseUrl) {
@@ -244,14 +273,14 @@ export function createWebhookRouter(overrides = {}) {
       }
 
       const matchedPattern = deps.getBestPatternMatch(extracted.text);
+      const resolvedMedia = deps.resolveMediaForRequest({
+        text: extracted.text,
+        matchedIntent: matchedPattern?.intent ?? null,
+        publicBaseUrl: requestContext.publicBaseUrl,
+      });
 
-      if (detectSampleImageIntent(extracted.text)) {
-        const media =
-          deps.resolveMediaForRequest({
-            text: extracted.text,
-            matchedIntent: matchedPattern?.intent ?? null,
-            publicBaseUrl: requestContext.publicBaseUrl,
-          }) || deps.getSampleImage(requestContext.publicBaseUrl);
+      if (detectMediaIntent(extracted.text, resolvedMedia)) {
+        const media = resolvedMedia || deps.getSampleImage(requestContext.publicBaseUrl);
 
         if (!media?.url) {
           const fallbackReply =

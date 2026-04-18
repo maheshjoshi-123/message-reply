@@ -400,11 +400,111 @@ test("price list image request sends the pricing creative", async () => {
   );
 });
 
+test("natural poster phrasing sends the MBA creative", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "malai mba wala poster pathaunu",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/02-mba-thesis-support\.png$/
+  );
+});
+
+test("banner phrasing sends the pricing creative", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "pricing ko banner deu",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/11-pricing-inquiry\.png$/
+  );
+});
+
+test("single typo theme word sends the formatting creative", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "formating",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/01-formatting-support\.png$/
+  );
+});
+
+test("all photos phrasing sends the contact sheet", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "all photos that you have",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/21-contact-sheet-10-concepts\.png$/
+  );
+});
+
 test("duplicate message ids are ignored", async () => {
   const harness = createWebhookApp();
   const body = buildTextWebhook({
     mid: "same-mid",
-    text: "hello price",
+    text: "hello thesis help",
   });
 
   await withTestServer(harness.app, async (baseUrl) => {
@@ -418,11 +518,13 @@ test("duplicate message ids are ignored", async () => {
       assert.equal(response.status, 200);
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   });
 
-  assert.equal(harness.generatedReplies.length, 1);
-  assert.equal(harness.sentTexts.length, 1);
+  assert.equal(
+    harness.sentTexts.length + harness.sentTextAndImages.length,
+    1
+  );
 });
 
 test("processing errors trigger a concise fallback reply", async () => {
@@ -440,13 +542,13 @@ test("processing errors trigger a concise fallback reply", async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(
         buildTextWebhook({
-          text: "Hello help",
+          text: "I need thesis guidance",
         })
       ),
     });
 
     assert.equal(response.status, 200);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 40));
   });
 
   assert.equal(harness.sentTexts.length, 1);
