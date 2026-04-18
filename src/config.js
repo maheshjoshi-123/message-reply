@@ -38,7 +38,23 @@ const config = {
   deepseekModel: process.env.DEEPSEEK_MODEL.trim(),
   modelTemperature: parseNumber(process.env.MODEL_TEMPERATURE, 0.4),
   modelMaxTokens: parseNumber(process.env.MODEL_MAX_TOKENS, 120),
-  memoryWindow: parseNumber(process.env.MEMORY_WINDOW, 8),
+  memoryWindow: parseNumber(
+    process.env.MAX_MEMORY_MESSAGES || process.env.MEMORY_WINDOW,
+    8
+  ),
+  maxMemoryMessages: parseNumber(
+    process.env.MAX_MEMORY_MESSAGES || process.env.MEMORY_WINDOW,
+    8
+  ),
+  requestTimeoutMs: parseNumber(process.env.REQUEST_TIMEOUT_MS, 5000),
+  imageAnalysisProvider: (
+    process.env.IMAGE_ANALYSIS_PROVIDER || "none"
+  ).trim().toLowerCase(),
+  messengerApiBaseUrl: (
+    process.env.MESSENGER_API_BASE_URL || "https://graph.facebook.com/v23.0"
+  ).trim(),
+  webhookDebounceMs: parseNumber(process.env.WEBHOOK_DEBOUNCE_MS, 1200),
+  retryCount: parseNumber(process.env.REQUEST_RETRY_COUNT, 2),
 };
 
 if (config.port <= 0) {
@@ -57,7 +73,22 @@ if (config.modelMaxTokens <= 0) {
 }
 
 if (config.memoryWindow <= 0) {
-  console.error("MEMORY_WINDOW must be a positive number.");
+  console.error("MAX_MEMORY_MESSAGES or MEMORY_WINDOW must be a positive number.");
+  process.exit(1);
+}
+
+if (config.requestTimeoutMs <= 0) {
+  console.error("REQUEST_TIMEOUT_MS must be a positive number.");
+  process.exit(1);
+}
+
+if (config.webhookDebounceMs < 0) {
+  console.error("WEBHOOK_DEBOUNCE_MS must be zero or a positive number.");
+  process.exit(1);
+}
+
+if (config.retryCount < 0) {
+  console.error("REQUEST_RETRY_COUNT must be zero or a positive number.");
   process.exit(1);
 }
 

@@ -1,9 +1,24 @@
+function extractImageAttachments(message) {
+  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
+
+  return attachments
+    .filter((attachment) => attachment?.type === "image")
+    .map((attachment) => ({
+      type: "image",
+      url: attachment?.payload?.url || null,
+    }))
+    .filter((attachment) => attachment.url);
+}
+
 export function extractMessage(event) {
   if (!event || typeof event !== "object") {
     return {
       shouldReply: false,
       senderId: null,
       text: null,
+      messageId: null,
+      images: [],
+      messageType: "unknown",
       reason: "Invalid event object",
     };
   }
@@ -13,6 +28,9 @@ export function extractMessage(event) {
       shouldReply: false,
       senderId: null,
       text: null,
+      messageId: null,
+      images: [],
+      messageType: "delivery",
       reason: "Ignored delivery event",
     };
   }
@@ -22,6 +40,9 @@ export function extractMessage(event) {
       shouldReply: false,
       senderId: null,
       text: null,
+      messageId: null,
+      images: [],
+      messageType: "read",
       reason: "Ignored read event",
     };
   }
@@ -31,6 +52,9 @@ export function extractMessage(event) {
       shouldReply: false,
       senderId: null,
       text: null,
+      messageId: null,
+      images: [],
+      messageType: "unsupported",
       reason: "Ignored non-message event",
     };
   }
@@ -40,6 +64,9 @@ export function extractMessage(event) {
       shouldReply: false,
       senderId: null,
       text: null,
+      messageId: event.message.mid ?? null,
+      images: [],
+      messageType: "echo",
       reason: "Ignored echo message",
     };
   }
@@ -51,34 +78,38 @@ export function extractMessage(event) {
       shouldReply: false,
       senderId: null,
       text: null,
+      messageId: event.message.mid ?? null,
+      images: [],
+      messageType: "unsupported",
       reason: "Missing sender id",
     };
   }
 
-  if (typeof event.message.text !== "string") {
+  const text =
+    typeof event.message.text === "string" ? event.message.text.trim() : null;
+  const images = extractImageAttachments(event.message);
+  const hasText = Boolean(text);
+  const hasImages = images.length > 0;
+
+  if (!hasText && !hasImages) {
     return {
       shouldReply: false,
       senderId,
       text: null,
-      reason: "Ignored attachments-only or unsupported message",
-    };
-  }
-
-  const text = event.message.text.trim();
-
-  if (!text) {
-    return {
-      shouldReply: false,
-      senderId,
-      text: null,
-      reason: "Ignored blank text message",
+      messageId: event.message.mid ?? null,
+      images: [],
+      messageType: "unsupported",
+      reason: "Ignored unsupported attachment message",
     };
   }
 
   return {
     shouldReply: true,
     senderId,
-    text,
-    reason: "Text message ready for reply",
+    text: hasText ? text : "",
+    messageId: event.message.mid ?? null,
+    images,
+    messageType: hasImages ? "image" : "text",
+    reason: hasImages ? "Image message ready for reply" : "Text message ready for reply",
   };
 }

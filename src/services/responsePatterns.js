@@ -10,7 +10,8 @@ const patterns = [
     examples: [
       "i want thesis help",
       "thesis garidinuhunchha",
-      "मलाई थेसिसमा सहयोग चाहिन्छ",
+      "mbs ko thesis gardinuhunchha",
+      "मलाई thesis ma sahayog chahincha",
       "sociology ko thesis gardinuhunchha",
     ],
     guidance:
@@ -21,7 +22,7 @@ const patterns = [
     examples: [
       "mba thesis price",
       "price for mba thesis",
-      "MBA ko kati parchha",
+      "mba ko kati parchha",
       "mba ko price kati ho",
     ],
     guidance:
@@ -30,6 +31,9 @@ const patterns = [
   {
     intent: "non_mba_price",
     examples: [
+      "mbs thesis price",
+      "mbs ko price kati ho",
+      "mbs ko thesis kati parchha",
       "med thesis price",
       "sociology thesis price",
       "proposal ra thesis kati",
@@ -43,7 +47,7 @@ const patterns = [
     examples: [
       "proposal only",
       "proposal matra chahinchha",
-      "प्रपोजल मात्र चाहिन्छ",
+      "proposal matra chahincha",
       "malai proposal matra chahinchha",
     ],
     guidance:
@@ -55,7 +59,7 @@ const patterns = [
       "thesis only",
       "full thesis only",
       "thesis matra",
-      "पूरा थेसिस चाहिन्छ",
+      "pura thesis chahinchha",
     ],
     guidance:
       "Confirm thesis-only help is available and ask for the subject or programme and deadline.",
@@ -65,8 +69,8 @@ const patterns = [
     examples: [
       "chapter 4 and 5",
       "chapter 4 ra 5",
-      "च्याप्टर ४ र ५ मात्र",
       "chapter 4 5 only",
+      "chapter 4 ra 5 matra",
     ],
     guidance:
       "Say Chapter 4 and 5 help is available, then ask for the subject, deadline, and whether data is ready.",
@@ -88,7 +92,7 @@ const patterns = [
       "topic dinuhunchha",
       "topic pani dinuhunchha",
       "can you provide topic",
-      "टोपिक पनि दिनुहुन्छ",
+      "topic pani dinuhuncha",
     ],
     guidance:
       "Say topic support can be provided or the user can bring their own topic, then ask for the subject or programme.",
@@ -146,7 +150,7 @@ const patterns = [
 ];
 
 function normalize(text) {
-  return text
+  return String(text || "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")

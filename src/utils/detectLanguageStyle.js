@@ -1,73 +1,43 @@
 const devanagariRegex = /[\u0900-\u097F]/u;
 
-const romanNepaliWords = [
-  "malai",
-  "maile",
-  "kati",
-  "ho",
-  "ko",
-  "chha",
-  "cha",
+const romanNepaliKeywords = [
   "huncha",
   "hunxa",
-  "hudaina",
-  "hudena",
-  "milcha",
-  "milxa",
-  "bhanchha",
-  "bhanne",
-  "kina",
-  "kata",
-  "chaincha",
-  "chahinchha",
-  "chahiyo",
-  "garne",
-  "garnu",
-  "gardinuhunchha",
-  "ra",
-  "pani",
-  "kun",
-  "bhayo",
-  "vayo",
-  "chhito",
-  "matra",
+  "tapaiko",
   "tapai",
   "tapailai",
-  "dinuhunchha",
-  "kahile",
-  "samma",
-  "bhaye",
-  "dubai",
-  "audaina",
-  "parchha",
-  "matrai",
-  "milako",
-  "bahira",
-  "samma",
-  "lahi",
-  "dinu",
+  "kina",
+  "kun",
+  "kasari",
+  "cha",
+  "chha",
+  "ho",
+  "bhayo",
+  "garchha",
+  "garcha",
+  "pathaunu",
+  "bhane",
+  "milcha",
+  "sodhnu",
 ];
 
-const englishServiceWords = [
+const englishMarkers = [
+  "hello",
   "price",
   "proposal",
   "thesis",
-  "subject",
-  "deadline",
   "topic",
-  "formatting",
-  "chapter",
-  "supervisor",
-  "correction",
-  "data",
-  "analysis",
-  "mba",
-  "phd",
-  "mphil",
+  "deadline",
+  "service",
+  "sample",
+  "image",
+  "photo",
+  "support",
+  "help",
 ];
 
 function normalize(text) {
-  return text
+  return String(text || "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
@@ -81,38 +51,51 @@ export function detectLanguageStyle(text, previousStyle = "english") {
     return previousStyle;
   }
 
-  if (devanagariRegex.test(text)) {
-    return "nepali_devanagari";
+  const hasDevanagari = devanagariRegex.test(text);
+  const words = normalized.split(" ").filter(Boolean);
+  const romanNepaliHits = words.filter((word) =>
+    romanNepaliKeywords.includes(word)
+  ).length;
+  const englishHits = words.filter((word) => englishMarkers.includes(word)).length;
+  const englishRatio = words.length > 0 ? englishHits / words.length : 0;
+
+  if (hasDevanagari && (romanNepaliHits > 0 || englishHits > 0)) {
+    return "mixed";
   }
 
-  const words = normalized.split(" ");
-  const romanHits = words.filter((word) => romanNepaliWords.includes(word)).length;
-  const englishHits = words.filter((word) =>
-    englishServiceWords.includes(word)
-  ).length;
+  if (hasDevanagari) {
+    return "nepali";
+  }
 
   if (
     normalized.includes("english audaina") ||
-    normalized.includes("english aaudaina")
+    normalized.includes("english aaudaina") ||
+    normalized.includes("english bujdina")
   ) {
     return "roman_nepali";
   }
 
-  if (romanHits >= 3) {
-    return "roman_nepali";
+  if (romanNepaliHits >= 2) {
+    return englishHits >= 2 ? "mixed" : "roman_nepali";
   }
 
-  if (romanHits >= 2 && englishHits >= 1) {
+  if (romanNepaliHits >= 1 && englishHits >= 1) {
     return "mixed";
   }
 
-  if (romanHits >= 1 && englishHits >= 2) {
-    return "mixed";
-  }
-
-  if (romanHits >= 1) {
+  if (romanNepaliHits >= 1) {
     return "roman_nepali";
   }
 
-  return "english";
+  if (englishHits >= 2 || (englishRatio >= 0.45 && words.length >= 3)) {
+    return "english";
+  }
+
+  if (previousStyle === "english" && englishHits >= 1) {
+    return "english";
+  }
+
+  return previousStyle === "roman_nepali" || previousStyle === "nepali"
+    ? previousStyle
+    : "english";
 }

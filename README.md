@@ -11,13 +11,15 @@ Event flow:
 Main features:
 
 - Meta webhook verification
-- Messenger text message handling
+- Messenger text and image message handling
 - Per-user in-process memory
 - Lightweight language-style detection
+- Concise Roman Nepali-first reply shaping
 - Unsupported-service guard
 - Similar-question response-pattern guidance
 - DeepSeek reply generation with compact prompts
-- Facebook Messenger Send API reply
+- Facebook Messenger Send API text and image reply
+- Duplicate-event protection, debounce, timeout, and retry handling
 
 ## Prerequisites
 
@@ -48,12 +50,15 @@ Fill these values in `.env`:
 - `PORT`
 - `VERIFY_TOKEN`
 - `PAGE_ACCESS_TOKEN`
+- `MESSENGER_API_BASE_URL`
 - `DEEPSEEK_API_KEY`
 - `DEEPSEEK_BASE_URL`
 - `DEEPSEEK_MODEL`
 - `MODEL_TEMPERATURE`
 - `MODEL_MAX_TOKENS`
-- `MEMORY_WINDOW`
+- `MAX_MEMORY_MESSAGES`
+- `REQUEST_TIMEOUT_MS`
+- `IMAGE_ANALYSIS_PROVIDER`
 - `APP_ENV`
 
 Use environment variables only. Never place secrets in source code.
@@ -124,13 +129,16 @@ For development testing with admins, developers, or testers, full App Review is 
 The bot:
 
 - stores a small recent history per sender in memory
+- stores up to 5 recent inbound image metadata entries per sender in memory
 - detects one of four language styles:
   - english
-  - nepali_devanagari
+  - nepali
   - roman_nepali
   - mixed
+- prefers concise Roman Nepali for Nepali-style users unless English is clearly used
 - blocks unsupported services like PhD, MPhil, and engineering thesis
 - checks common intent patterns such as greeting, pricing, proposal only, chapter 4 and 5, formatting only, topic support, and supervisor feedback
+- can send a sample public image when users ask for sample photos or images
 - builds a compact prompt for DeepSeek
 - replies in the user's language style
 
@@ -172,7 +180,7 @@ Memory is in-process only and resets when the server restarts.
 
 ### No reply due to unsupported event type
 
-- The bot only processes text messages and ignores delivery, read, echo, non-message, attachments-only, and blank messages.
+- The bot processes text and image messages, and ignores delivery, read, echo, non-message, unsupported attachments, and blank messages.
 
 ## Deploy To Render
 
@@ -186,9 +194,10 @@ This project includes a `render.yaml` file so it is ready for GitHub-based deplo
 4. Render will detect `render.yaml`.
 5. Review the service name, plan, and region.
 6. Set the secret environment variables in Render:
-   - `VERIFY_TOKEN`
-   - `PAGE_ACCESS_TOKEN`
-   - `DEEPSEEK_API_KEY`
+- `VERIFY_TOKEN`
+- `PAGE_ACCESS_TOKEN`
+- `MESSENGER_API_BASE_URL`
+- `DEEPSEEK_API_KEY`
 7. Deploy the service.
 8. After deployment, open the Render service URL and confirm:
 
@@ -216,12 +225,15 @@ Set these in Render:
 
 - `VERIFY_TOKEN=your_custom_verify_token`
 - `PAGE_ACCESS_TOKEN=your_meta_page_access_token`
+- `MESSENGER_API_BASE_URL=https://graph.facebook.com/v23.0`
 - `DEEPSEEK_API_KEY=your_deepseek_api_key`
 - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
 - `DEEPSEEK_MODEL=deepseek-chat`
 - `MODEL_TEMPERATURE=0.4`
 - `MODEL_MAX_TOKENS=120`
-- `MEMORY_WINDOW=8`
+- `MAX_MEMORY_MESSAGES=8`
+- `REQUEST_TIMEOUT_MS=5000`
+- `IMAGE_ANALYSIS_PROVIDER=none`
 - `APP_ENV=production`
 
 Render provides `PORT` automatically for web services, so you do not need to set `PORT` manually there.
