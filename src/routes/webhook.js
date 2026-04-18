@@ -12,9 +12,14 @@ import {
 import {
   getMediaByIntent,
   getSampleImage,
+  listMedia,
   resolveMediaForRequest,
 } from "../services/mediaLibrary.js";
-import { sendTextAndImage, sendTextMessage } from "../services/messenger.js";
+import {
+  sendImageMessage,
+  sendTextAndImage,
+  sendTextMessage,
+} from "../services/messenger.js";
 import { getBestPatternMatch } from "../services/responsePatterns.js";
 import { sleep } from "../utils/asyncTools.js";
 import { buildPrompt } from "../utils/buildPrompt.js";
@@ -34,10 +39,24 @@ const sampleImageTriggers = [
   "image cha",
   "image cha?",
   "price list",
+];
+const allMediaTriggers = [
   "all photos",
   "all images",
   "all posters",
   "all banners",
+  "all pics",
+  "all pic",
+  "all samples",
+  "all creatives",
+  "sabai photo",
+  "sabai photos",
+  "sabai image",
+  "sabai images",
+  "sabai poster",
+  "sabai posters",
+  "sabai banner",
+  "sabai banners",
 ];
 const imageNouns = [
   "sample",
@@ -66,6 +85,38 @@ const requestWords = [
   "dinu na",
   "pathaideu",
 ];
+const imageStopPhrases = [
+  "send nagari",
+  "photo send nagari",
+  "image send nagari",
+  "picture send nagari",
+  "photo chaina",
+  "image chaina",
+  "pic chaina",
+  "poster chaina",
+  "banner chaina",
+  "send garnu pardaina",
+  "send garnu parena",
+  "send garnu hudaina",
+  "pathaunu pardaina",
+  "pathaunu hudaina",
+  "send nagarnu",
+  "pathaunu nagarnu",
+  "dont send photo",
+  "do not send photo",
+  "dont send image",
+  "do not send image",
+  "no photo",
+  "no image",
+];
+const imageQuestionPhrases = [
+  "kina send gareko photo",
+  "kina send garyo photo",
+  "kina photo pathayo",
+  "why send photo",
+  "why did you send photo",
+  "why sent photo",
+];
 
 const errorReplies = {
   english: "Please try again shortly.",
@@ -85,7 +136,9 @@ const defaultDependencies = {
   setLanguageStyle,
   getMediaByIntent,
   getSampleImage,
+  listMedia,
   resolveMediaForRequest,
+  sendImageMessage,
   sendTextAndImage,
   sendTextMessage,
   getBestPatternMatch,
@@ -115,6 +168,32 @@ function detectMediaIntent(text, resolvedMedia) {
     return false;
   }
 
+  if (
+    imageStopPhrases.some((phrase) => normalized.includes(phrase)) ||
+    imageQuestionPhrases.some((phrase) => normalized.includes(phrase))
+  ) {
+    return false;
+  }
+
+  const hasImageWord = imageNouns.some((word) => normalized.includes(word));
+  const hasNegativeVerb =
+    normalized.includes("nagara") ||
+    normalized.includes("nagari") ||
+    normalized.includes("nagar") ||
+    normalized.includes("hudaina") ||
+    normalized.includes("pardaina") ||
+    normalized.includes("parena") ||
+    normalized.includes("chaina");
+  const isWhyQuestion =
+    normalized.includes("kina") &&
+    (normalized.includes("send") ||
+      normalized.includes("pathayo") ||
+      normalized.includes("pathaeko"));
+
+  if (hasImageWord && (hasNegativeVerb || isWhyQuestion)) {
+    return false;
+  }
+
   if (sampleImageTriggers.some((trigger) => normalized.includes(trigger))) {
     return true;
   }
@@ -132,6 +211,34 @@ function detectMediaIntent(text, resolvedMedia) {
   }
 
   return false;
+}
+
+function detectAllMediaIntent(text) {
+  const normalized = normalizeText(text);
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    imageStopPhrases.some((phrase) => normalized.includes(phrase)) ||
+    imageQuestionPhrases.some((phrase) => normalized.includes(phrase))
+  ) {
+    return false;
+  }
+
+  return allMediaTriggers.some((trigger) => normalized.includes(trigger));
+}
+
+function getAllMediaReply(languageStyle) {
+  const replies = {
+    english: "Here are all the available images.",
+    roman_nepali: "Yaha sabai available images chhan.",
+    nepali: "Yaha sabai available images chhan.",
+    mixed: "Yaha sabai available images chhan.",
+  };
+
+  return replies[languageStyle] || replies.english;
 }
 
 function resolvePublicBaseUrl(req, configuredBaseUrl) {
@@ -278,6 +385,44 @@ export function createWebhookRouter(overrides = {}) {
         matchedIntent: matchedPattern?.intent ?? null,
         publicBaseUrl: requestContext.publicBaseUrl,
       });
+
+      if (detectAllMediaIntent(extracted.text)) {
+        const allMedia = deps
+          .listMedia(requestContext.publicBaseUrl)
+          .filter((item) => item?.url);
+
+        if (allMedia.length === 0) {
+          const fallbackReply =
+            detectedLanguageStyle === "english"
+              ? "We will share the images soon."
+              : "Images chittai share garchhau.";
+
+          await deps.sendTextMessage(extracted.senderId, fallbackReply);
+          deps.addAssistantMessage(extracted.senderId, fallbackReply);
+        } else {
+          const introReply = getAllMediaReply(detectedLanguageStyle);
+          const [firstMedia, ...remainingMedia] = allMedia;
+
+          await deps.sendTextAndImage(
+            extracted.senderId,
+            introReply,
+            firstMedia.url
+          );
+          deps.addAssistantMessage(extracted.senderId, introReply);
+
+          for (const media of remainingMedia) {
+            await deps.sendImageMessage(extracted.senderId, media.url);
+            await deps.sleep(150);
+          }
+        }
+
+        deps.info("Processed message.", {
+          messageType: "text",
+          languageDetected: detectedLanguageStyle,
+          intentDetected: "all_media",
+        });
+        return;
+      }
 
       if (detectMediaIntent(extracted.text, resolvedMedia)) {
         const media = resolvedMedia || deps.getSampleImage(requestContext.publicBaseUrl);

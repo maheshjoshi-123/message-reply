@@ -8,7 +8,11 @@ import { createWebhookRouter } from "../src/routes/webhook.js";
 import { detectLanguageStyle } from "../src/utils/detectLanguageStyle.js";
 import { extractMessage } from "../src/utils/extractMessage.js";
 import { analyseImage } from "../src/services/imageAnalysis.js";
-import { getMediaByIntent, getSampleImage } from "../src/services/mediaLibrary.js";
+import {
+  getMediaByIntent,
+  getSampleImage,
+  listMedia,
+} from "../src/services/mediaLibrary.js";
 
 function createMemoryHarness() {
   const state = {
@@ -475,8 +479,9 @@ test("single typo theme word sends the formatting creative", async () => {
   );
 });
 
-test("all photos phrasing sends the contact sheet", async () => {
+test("all photos phrasing sends all images", async () => {
   const harness = createWebhookApp();
+  const expectedMediaCount = listMedia("http://127.0.0.1").length;
 
   await withTestServer(harness.app, async (baseUrl) => {
     const response = await fetch(`${baseUrl}/webhook`, {
@@ -494,10 +499,59 @@ test("all photos phrasing sends the contact sheet", async () => {
   });
 
   assert.equal(harness.sentTextAndImages.length, 1);
+  assert.equal(harness.sentImages.length, expectedMediaCount - 1);
   assert.match(
     harness.sentTextAndImages[0].url,
-    /\/media\/thesis-master\/21-contact-sheet-10-concepts\.png$/
+    /\/media\/thesis-master\/01-formatting-support\.png$/
   );
+});
+
+test("negative photo phrasing does not send an image", async () => {
+  const harness = createWebhookApp({
+    replyText: "Kripaya photo send nagarnus bhane bujheko chhu.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Ho ra.. photo send nagari hudaina",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+});
+
+test("why did you send photo complaint does not send another image", async () => {
+  const harness = createWebhookApp({
+    replyText: "Photo kina pathaeko ho bhanera bujheko chhu. Aba image pathaudaina.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Kina send garey ko photo",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
 });
 
 test("duplicate message ids are ignored", async () => {
