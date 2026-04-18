@@ -16,7 +16,9 @@ app.use(express.json());
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
-
+app.get("/", (req, res) => {
+  res.status(200).send("Messenger auto-reply bot is active.");
+});
 app.use("/", webhookRouter);
 
 app.use((req, res) => {
