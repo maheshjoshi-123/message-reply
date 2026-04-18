@@ -161,8 +161,25 @@ function normalizeText(text) {
     .trim();
 }
 
+function containsTokenOrPhrase(normalized, words, candidates) {
+  return candidates.some((candidate) => {
+    const cleanCandidate = candidate.trim().toLowerCase();
+
+    if (!cleanCandidate) {
+      return false;
+    }
+
+    if (cleanCandidate.includes(" ")) {
+      return normalized.includes(cleanCandidate);
+    }
+
+    return words.includes(cleanCandidate);
+  });
+}
+
 function detectMediaIntent(text, resolvedMedia) {
   const normalized = normalizeText(text);
+  const words = normalized.split(" ").filter(Boolean);
 
   if (!normalized) {
     return false;
@@ -198,15 +215,39 @@ function detectMediaIntent(text, resolvedMedia) {
     return true;
   }
 
-  const hasImageNoun = imageNouns.some((word) => normalized.includes(word));
-  const hasRequestWord = requestWords.some((word) => normalized.includes(word));
-  const wordCount = normalized.split(" ").filter(Boolean).length;
+  const hasImageNoun = containsTokenOrPhrase(normalized, words, imageNouns);
+  const hasRequestWord = containsTokenOrPhrase(normalized, words, requestWords);
+  const wordCount = words.length;
+  const connectorWords = ["ko", "wala", "ko lagi", "please"];
+  const resolvedTags = Array.isArray(resolvedMedia?.tags) ? resolvedMedia.tags : [];
+  const isQuestionLike =
+    text.includes("?") ||
+    normalized.includes(" k ") ||
+    normalized.startsWith("k ") ||
+    normalized.includes(" ke ") ||
+    normalized.startsWith("ke ") ||
+    normalized.includes("kina") ||
+    normalized.includes("kasari") ||
+    normalized.includes("huncha") ||
+    normalized.includes("huncha") ||
+    normalized.includes("garne") ||
+    normalized.includes("next");
+  const isShortThemeOnly =
+    Boolean(resolvedMedia) &&
+    wordCount > 0 &&
+    wordCount <= 2 &&
+    !isQuestionLike &&
+    words.every(
+      (word) =>
+        connectorWords.includes(word) ||
+        resolvedTags.some((tag) => tag.includes(word) || word.includes(tag))
+    );
 
   if (hasImageNoun && (hasRequestWord || Boolean(resolvedMedia))) {
     return true;
   }
 
-  if (resolvedMedia && wordCount <= 3) {
+  if (isShortThemeOnly) {
     return true;
   }
 
@@ -215,6 +256,7 @@ function detectMediaIntent(text, resolvedMedia) {
 
 function detectAllMediaIntent(text) {
   const normalized = normalizeText(text);
+  const words = normalized.split(" ").filter(Boolean);
 
   if (!normalized) {
     return false;
@@ -227,7 +269,7 @@ function detectAllMediaIntent(text) {
     return false;
   }
 
-  return allMediaTriggers.some((trigger) => normalized.includes(trigger));
+  return containsTokenOrPhrase(normalized, words, allMediaTriggers);
 }
 
 function getAllMediaReply(languageStyle) {

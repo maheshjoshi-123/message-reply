@@ -301,6 +301,150 @@ test("text webhook keeps normal AI flow and stores detected language", async () 
   );
 });
 
+test("thank-you style text does not send an image", async () => {
+  const harness = createWebhookApp({
+    replyText: "Hajur, aru ke help chahinchha?",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "dhanyabad",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+});
+
+test("short confused text does not send an image", async () => {
+  const harness = createWebhookApp({
+    replyText: "Ma sir lai sodhera bhanxu hai.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "k bho",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+});
+
+test("general thesis question does not send an image even with thesis intent", async () => {
+  const harness = createWebhookApp({
+    replyText: "Huncha. Tapai full thesis chahinchha ki proposal matra?",
+    deps: {
+      getBestPatternMatch: (text) => {
+        if (text.includes("thesis")) {
+          return {
+            intent: "general_thesis_help",
+            guidance: "Confirm if the user wants thesis help from us.",
+          };
+        }
+
+        return null;
+      },
+    },
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "thesis hunxa?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+});
+
+test("topic guidance question does not send an image", async () => {
+  const harness = createWebhookApp({
+    replyText: "Tapai ko subject k ho? Ma sir lai sodhera ramro topic bhanxu hai.",
+    deps: {
+      getBestPatternMatch: (text) => {
+        if (text.includes("topic")) {
+          return {
+            intent: "topic_support",
+            guidance: "Confirm if the user wants us to help with topic selection.",
+          };
+        }
+
+        return null;
+      },
+    },
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "topic k garne?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+});
+
+test("what to do next question does not send an image", async () => {
+  const harness = createWebhookApp({
+    replyText: "Tapai ko subject ra level pathaunus. Ani next step bhanchu.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "what to do next?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+});
+
 test("image webhook stores inbound image and sends safe fallback", async () => {
   const harness = createWebhookApp();
 
