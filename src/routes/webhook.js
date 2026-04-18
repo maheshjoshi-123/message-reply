@@ -9,7 +9,11 @@ import {
   getLanguageStyle,
   setLanguageStyle,
 } from "../services/memory.js";
-import { getMediaByIntent, getSampleImage } from "../services/mediaLibrary.js";
+import {
+  getMediaByIntent,
+  getSampleImage,
+  resolveMediaForRequest,
+} from "../services/mediaLibrary.js";
 import { sendTextAndImage, sendTextMessage } from "../services/messenger.js";
 import { getBestPatternMatch } from "../services/responsePatterns.js";
 import { sleep } from "../utils/asyncTools.js";
@@ -29,6 +33,18 @@ const sampleImageTriggers = [
   "send sample",
   "image cha",
   "image cha?",
+  "price list",
+];
+const imageNouns = ["sample", "pic", "photo", "image", "poster", "banner"];
+const requestWords = [
+  "send",
+  "show",
+  "share",
+  "pathaunu",
+  "pathau",
+  "pathaidinu",
+  "dinus",
+  "dekhau",
 ];
 
 const errorReplies = {
@@ -49,6 +65,7 @@ const defaultDependencies = {
   setLanguageStyle,
   getMediaByIntent,
   getSampleImage,
+  resolveMediaForRequest,
   sendTextAndImage,
   sendTextMessage,
   getBestPatternMatch,
@@ -78,7 +95,31 @@ function detectSampleImageIntent(text) {
     return false;
   }
 
-  return sampleImageTriggers.some((trigger) => normalized.includes(trigger));
+  if (sampleImageTriggers.some((trigger) => normalized.includes(trigger))) {
+    return true;
+  }
+
+  const hasImageNoun = imageNouns.some((word) => normalized.includes(word));
+  const hasRequestWord = requestWords.some((word) => normalized.includes(word));
+
+  return hasImageNoun && hasRequestWord;
+}
+
+function resolvePublicBaseUrl(req, configuredBaseUrl) {
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/+$/, "");
+  }
+
+  const host = req.get("host");
+
+  if (!host) {
+    return null;
+  }
+
+  const forwardedProto = req.get("x-forwarded-proto");
+  const protocol = forwardedProto?.split(",")[0]?.trim() || req.protocol || "https";
+
+  return `${protocol}://${host}`;
 }
 
 function getErrorReply(languageStyle) {
@@ -158,7 +199,7 @@ export function createWebhookRouter(overrides = {}) {
     }
   }
 
-  async function processMessengerEvent(extracted) {
+  async function processMessengerEvent(extracted, requestContext = {}) {
     const previousLanguageStyle = deps.getLanguageStyle(extracted.senderId);
     const detectedLanguageStyle = extracted.text
       ? deps.detectLanguageStyle(extracted.text, previousLanguageStyle)
@@ -202,9 +243,15 @@ export function createWebhookRouter(overrides = {}) {
         return;
       }
 
+      const matchedPattern = deps.getBestPatternMatch(extracted.text);
+
       if (detectSampleImageIntent(extracted.text)) {
         const media =
-          deps.getMediaByIntent("sample_image") || deps.getSampleImage();
+          deps.resolveMediaForRequest({
+            text: extracted.text,
+            matchedIntent: matchedPattern?.intent ?? null,
+            publicBaseUrl: requestContext.publicBaseUrl,
+          }) || deps.getSampleImage(requestContext.publicBaseUrl);
 
         if (!media?.url) {
           const fallbackReply =
@@ -228,7 +275,7 @@ export function createWebhookRouter(overrides = {}) {
         deps.info("Processed message.", {
           messageType: "text",
           languageDetected: detectedLanguageStyle,
-          intentDetected: "sample_image",
+          intentDetected: media?.key || "sample_image",
         });
         return;
       }
@@ -252,7 +299,6 @@ export function createWebhookRouter(overrides = {}) {
         return;
       }
 
-      const matchedPattern = deps.getBestPatternMatch(extracted.text);
       const promptMessages = deps.buildPrompt({
         userId: extracted.senderId,
         currentText: extracted.text,
@@ -287,7 +333,7 @@ export function createWebhookRouter(overrides = {}) {
     }
   }
 
-  async function handleWebhook(body) {
+  async function handleWebhook(body, requestContext = {}) {
     try {
       if (body?.object !== "page") {
         deps.warn("Ignored webhook with unsupported object type.", {
@@ -320,7 +366,7 @@ export function createWebhookRouter(overrides = {}) {
           }
 
           void queueSenderEvent(extracted.senderId, () =>
-            processMessengerEvent(extracted)
+            processMessengerEvent(extracted, requestContext)
           );
         }
       }
@@ -355,7 +401,9 @@ export function createWebhookRouter(overrides = {}) {
 
   router.post("/webhook", (req, res) => {
     res.sendStatus(200);
-    void handleWebhook(req.body);
+    void handleWebhook(req.body, {
+      publicBaseUrl: resolvePublicBaseUrl(req, deps.config.publicBaseUrl),
+    });
   });
 
   return router;

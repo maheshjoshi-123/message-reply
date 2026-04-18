@@ -259,6 +259,12 @@ test("app serves root, health, and webhook verification", async () => {
     );
     assert.equal(webhookResponse.status, 200);
     assert.equal(await webhookResponse.text(), "abc123");
+
+    const mediaResponse = await fetch(
+      `${baseUrl}/media/thesis-master/01-formatting-support.png`
+    );
+    assert.equal(mediaResponse.status, 200);
+    assert.equal(mediaResponse.headers.get("content-type"), "image/png");
   });
 });
 
@@ -338,7 +344,60 @@ test("sample image intent sends one caption and one image payload", async () => 
 
   assert.equal(harness.sentTextAndImages.length, 1);
   assert.equal(harness.sentTexts.length, 0);
-  assert.match(harness.sentTextAndImages[0].url, /^https?:\/\//);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/14-sample-request\.png$/
+  );
+});
+
+test("themed image request sends the matching themed asset", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "mba ko sample pic pathaunu",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/02-mba-thesis-support\.png$/
+  );
+});
+
+test("price list image request sends the pricing creative", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "price list image pathaunu",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/11-pricing-inquiry\.png$/
+  );
 });
 
 test("duplicate message ids are ignored", async () => {

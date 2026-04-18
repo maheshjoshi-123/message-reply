@@ -8,13 +8,24 @@ import config from "./config.js";
 import webhookRouter, { createWebhookRouter } from "./routes/webhook.js";
 import { error, info } from "./utils/logger.js";
 
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const publicDir = path.join(currentDir, "..", "public");
+
 export function createApp(router = webhookRouter) {
   const app = express();
 
+  app.set("trust proxy", true);
   app.use(helmet());
   app.use(cors());
   app.use(morgan(":method :status :response-time ms"));
   app.use(express.json());
+  app.use(
+    "/media",
+    express.static(path.join(publicDir, "media"), {
+      fallthrough: true,
+      index: false,
+    })
+  );
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true });

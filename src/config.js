@@ -50,6 +50,7 @@ const config = {
   imageAnalysisProvider: (
     process.env.IMAGE_ANALYSIS_PROVIDER || "none"
   ).trim().toLowerCase(),
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL || "").trim(),
   messengerApiBaseUrl: (
     process.env.MESSENGER_API_BASE_URL || "https://graph.facebook.com/v23.0"
   ).trim(),

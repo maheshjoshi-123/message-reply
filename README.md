@@ -50,6 +50,7 @@ Fill these values in `.env`:
 - `PORT`
 - `VERIFY_TOKEN`
 - `PAGE_ACCESS_TOKEN`
+- `PUBLIC_BASE_URL`
 - `MESSENGER_API_BASE_URL`
 - `DEEPSEEK_API_KEY`
 - `DEEPSEEK_BASE_URL`
@@ -139,6 +140,7 @@ The bot:
 - blocks unsupported services like PhD, MPhil, and engineering thesis
 - checks common intent patterns such as greeting, pricing, proposal only, chapter 4 and 5, formatting only, topic support, and supervisor feedback
 - can send a sample public image when users ask for sample photos or images
+- serves deployable image assets from `/media/thesis-master/...`
 - builds a compact prompt for DeepSeek
 - replies in the user's language style
 
@@ -196,6 +198,7 @@ This project includes a `render.yaml` file so it is ready for GitHub-based deplo
 6. Set the secret environment variables in Render:
 - `VERIFY_TOKEN`
 - `PAGE_ACCESS_TOKEN`
+- `PUBLIC_BASE_URL`
 - `MESSENGER_API_BASE_URL`
 - `DEEPSEEK_API_KEY`
 7. Deploy the service.
@@ -218,6 +221,13 @@ https://YOUR_RENDER_URL/webhook
 ```
 
 10. Keep the Meta verify token exactly the same as `VERIFY_TOKEN` in Render.
+11. Set `PUBLIC_BASE_URL` to your Render service root URL, for example:
+
+```text
+https://YOUR_RENDER_URL
+```
+
+This is required so the bot can send public image URLs like `/media/thesis-master/02-mba-thesis-support.png` through Messenger.
 
 ### Render environment variables
 
@@ -225,6 +235,7 @@ Set these in Render:
 
 - `VERIFY_TOKEN=your_custom_verify_token`
 - `PAGE_ACCESS_TOKEN=your_meta_page_access_token`
+- `PUBLIC_BASE_URL=https://your-service.onrender.com`
 - `MESSENGER_API_BASE_URL=https://graph.facebook.com/v23.0`
 - `DEEPSEEK_API_KEY=your_deepseek_api_key`
 - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
