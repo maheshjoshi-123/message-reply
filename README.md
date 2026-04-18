@@ -130,6 +130,21 @@ For development testing with admins, developers, or testers, full App Review is 
 6. Send a message to the Page from a test account.
 7. Watch the terminal logs.
 
+## Provider Check
+
+Run a live smoke test against the configured AI providers:
+
+```powershell
+npm run check:providers
+```
+
+Optional single-provider checks:
+
+```powershell
+node scripts/check-providers.js --provider=gemini
+node scripts/check-providers.js --provider=deepseek
+```
+
 ## Conversation Logic
 
 The bot:
