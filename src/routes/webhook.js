@@ -1,6 +1,7 @@
 import express from "express";
 import config from "../config.js";
 import { generateReply } from "../services/deepseek.js";
+import { buildDirectReply, isThesisDomainText } from "../services/directReply.js";
 import { analyseImage } from "../services/imageAnalysis.js";
 import {
   addAssistantMessage,
@@ -10,7 +11,6 @@ import {
   setLanguageStyle,
 } from "../services/memory.js";
 import {
-  getMediaByIntent,
   getSampleImage,
   listMedia,
   resolveMediaForRequest,
@@ -24,6 +24,7 @@ import { getBestPatternMatch } from "../services/responsePatterns.js";
 import { sleep } from "../utils/asyncTools.js";
 import { buildPrompt } from "../utils/buildPrompt.js";
 import { detectLanguageStyle } from "../utils/detectLanguageStyle.js";
+import { detectMediaRequest } from "../utils/mediaRequest.js";
 import { extractMessage } from "../utils/extractMessage.js";
 import { error, info, warn } from "../utils/logger.js";
 import {
@@ -32,91 +33,6 @@ import {
 } from "../utils/unsupportedService.js";
 
 const duplicateMessageTtlMs = 5 * 60 * 1000;
-const sampleImageTriggers = [
-  "sample pic",
-  "photo pathaunu",
-  "send sample",
-  "image cha",
-  "image cha?",
-  "price list",
-];
-const allMediaTriggers = [
-  "all photos",
-  "all images",
-  "all posters",
-  "all banners",
-  "all pics",
-  "all pic",
-  "all samples",
-  "all creatives",
-  "sabai photo",
-  "sabai photos",
-  "sabai image",
-  "sabai images",
-  "sabai poster",
-  "sabai posters",
-  "sabai banner",
-  "sabai banners",
-];
-const imageNouns = [
-  "sample",
-  "pic",
-  "photo",
-  "photos",
-  "image",
-  "images",
-  "poster",
-  "posters",
-  "banner",
-  "banners",
-];
-const requestWords = [
-  "send",
-  "show",
-  "share",
-  "pathaunu",
-  "pathau",
-  "pathaidinu",
-  "dinus",
-  "dekhau",
-  "deu",
-  "deuna",
-  "dinu",
-  "dinu na",
-  "pathaideu",
-];
-const imageStopPhrases = [
-  "send nagari",
-  "photo send nagari",
-  "image send nagari",
-  "picture send nagari",
-  "photo chaina",
-  "image chaina",
-  "pic chaina",
-  "poster chaina",
-  "banner chaina",
-  "send garnu pardaina",
-  "send garnu parena",
-  "send garnu hudaina",
-  "pathaunu pardaina",
-  "pathaunu hudaina",
-  "send nagarnu",
-  "pathaunu nagarnu",
-  "dont send photo",
-  "do not send photo",
-  "dont send image",
-  "do not send image",
-  "no photo",
-  "no image",
-];
-const imageQuestionPhrases = [
-  "kina send gareko photo",
-  "kina send garyo photo",
-  "kina photo pathayo",
-  "why send photo",
-  "why did you send photo",
-  "why sent photo",
-];
 
 const errorReplies = {
   english: "Please try again shortly.",
@@ -128,13 +44,14 @@ const errorReplies = {
 const defaultDependencies = {
   config,
   generateReply,
+  buildDirectReply,
+  isThesisDomainText,
   analyseImage,
   addAssistantMessage,
   addInboundMedia,
   addUserMessage,
   getLanguageStyle,
   setLanguageStyle,
-  getMediaByIntent,
   getSampleImage,
   listMedia,
   resolveMediaForRequest,
@@ -145,6 +62,7 @@ const defaultDependencies = {
   sleep,
   buildPrompt,
   detectLanguageStyle,
+  detectMediaRequest,
   extractMessage,
   error,
   info,
@@ -152,125 +70,6 @@ const defaultDependencies = {
   detectUnsupportedService,
   getUnsupportedReply,
 };
-
-function normalizeText(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s?]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function containsTokenOrPhrase(normalized, words, candidates) {
-  return candidates.some((candidate) => {
-    const cleanCandidate = candidate.trim().toLowerCase();
-
-    if (!cleanCandidate) {
-      return false;
-    }
-
-    if (cleanCandidate.includes(" ")) {
-      return normalized.includes(cleanCandidate);
-    }
-
-    return words.includes(cleanCandidate);
-  });
-}
-
-function detectMediaIntent(text, resolvedMedia) {
-  const normalized = normalizeText(text);
-  const words = normalized.split(" ").filter(Boolean);
-
-  if (!normalized) {
-    return false;
-  }
-
-  if (
-    imageStopPhrases.some((phrase) => normalized.includes(phrase)) ||
-    imageQuestionPhrases.some((phrase) => normalized.includes(phrase))
-  ) {
-    return false;
-  }
-
-  const hasImageWord = imageNouns.some((word) => normalized.includes(word));
-  const hasNegativeVerb =
-    normalized.includes("nagara") ||
-    normalized.includes("nagari") ||
-    normalized.includes("nagar") ||
-    normalized.includes("hudaina") ||
-    normalized.includes("pardaina") ||
-    normalized.includes("parena") ||
-    normalized.includes("chaina");
-  const isWhyQuestion =
-    normalized.includes("kina") &&
-    (normalized.includes("send") ||
-      normalized.includes("pathayo") ||
-      normalized.includes("pathaeko"));
-
-  if (hasImageWord && (hasNegativeVerb || isWhyQuestion)) {
-    return false;
-  }
-
-  if (sampleImageTriggers.some((trigger) => normalized.includes(trigger))) {
-    return true;
-  }
-
-  const hasImageNoun = containsTokenOrPhrase(normalized, words, imageNouns);
-  const hasRequestWord = containsTokenOrPhrase(normalized, words, requestWords);
-  const wordCount = words.length;
-  const connectorWords = ["ko", "wala", "ko lagi", "please"];
-  const resolvedTags = Array.isArray(resolvedMedia?.tags) ? resolvedMedia.tags : [];
-  const isQuestionLike =
-    text.includes("?") ||
-    normalized.includes(" k ") ||
-    normalized.startsWith("k ") ||
-    normalized.includes(" ke ") ||
-    normalized.startsWith("ke ") ||
-    normalized.includes("kina") ||
-    normalized.includes("kasari") ||
-    normalized.includes("huncha") ||
-    normalized.includes("huncha") ||
-    normalized.includes("garne") ||
-    normalized.includes("next");
-  const isShortThemeOnly =
-    Boolean(resolvedMedia) &&
-    wordCount > 0 &&
-    wordCount <= 2 &&
-    !isQuestionLike &&
-    words.every(
-      (word) =>
-        connectorWords.includes(word) ||
-        resolvedTags.some((tag) => tag.includes(word) || word.includes(tag))
-    );
-
-  if (hasImageNoun && (hasRequestWord || Boolean(resolvedMedia))) {
-    return true;
-  }
-
-  if (isShortThemeOnly) {
-    return true;
-  }
-
-  return false;
-}
-
-function detectAllMediaIntent(text) {
-  const normalized = normalizeText(text);
-  const words = normalized.split(" ").filter(Boolean);
-
-  if (!normalized) {
-    return false;
-  }
-
-  if (
-    imageStopPhrases.some((phrase) => normalized.includes(phrase)) ||
-    imageQuestionPhrases.some((phrase) => normalized.includes(phrase))
-  ) {
-    return false;
-  }
-
-  return containsTokenOrPhrase(normalized, words, allMediaTriggers);
-}
 
 function getAllMediaReply(languageStyle) {
   const replies = {
@@ -427,8 +226,9 @@ export function createWebhookRouter(overrides = {}) {
         matchedIntent: matchedPattern?.intent ?? null,
         publicBaseUrl: requestContext.publicBaseUrl,
       });
+      const mediaRequest = deps.detectMediaRequest(extracted.text);
 
-      if (detectAllMediaIntent(extracted.text)) {
+      if (mediaRequest.type === "all") {
         const allMedia = deps
           .listMedia(requestContext.publicBaseUrl)
           .filter((item) => item?.url);
@@ -466,7 +266,7 @@ export function createWebhookRouter(overrides = {}) {
         return;
       }
 
-      if (detectMediaIntent(extracted.text, resolvedMedia)) {
+      if (mediaRequest.type === "single") {
         const media = resolvedMedia || deps.getSampleImage(requestContext.publicBaseUrl);
 
         if (!media?.url) {
@@ -515,6 +315,33 @@ export function createWebhookRouter(overrides = {}) {
         return;
       }
 
+      const directReply = deps.buildDirectReply({
+        text: extracted.text,
+        languageStyle: detectedLanguageStyle,
+        matchedPattern,
+      });
+
+      if (directReply) {
+        await deps.sendTextMessage(extracted.senderId, directReply);
+        deps.addAssistantMessage(extracted.senderId, directReply);
+
+        deps.info("Processed message.", {
+          messageType: "text",
+          languageDetected: detectedLanguageStyle,
+          intentDetected: matchedPattern?.intent ?? "direct_reply",
+        });
+        return;
+      }
+
+      if (!deps.isThesisDomainText({ text: extracted.text, matchedPattern })) {
+        deps.info("Processed message.", {
+          messageType: "text",
+          languageDetected: detectedLanguageStyle,
+          intentDetected: "ignored_non_domain",
+        });
+        return;
+      }
+
       const promptMessages = deps.buildPrompt({
         userId: extracted.senderId,
         currentText: extracted.text,
@@ -527,6 +354,15 @@ export function createWebhookRouter(overrides = {}) {
         languageStyle: detectedLanguageStyle,
         promptMessages,
       });
+
+      if (!reply) {
+        deps.info("Processed message.", {
+          messageType: "text",
+          languageDetected: detectedLanguageStyle,
+          intentDetected: matchedPattern?.intent ?? "suppressed_reply",
+        });
+        return;
+      }
 
       await deps.sendTextMessage(extracted.senderId, reply);
       deps.addAssistantMessage(extracted.senderId, reply);

@@ -301,7 +301,7 @@ test("text webhook keeps normal AI flow and stores detected language", async () 
   );
 });
 
-test("thank-you style text does not send an image", async () => {
+test("thank-you style text is ignored", async () => {
   const harness = createWebhookApp({
     replyText: "Hajur, aru ke help chahinchha?",
   });
@@ -322,10 +322,11 @@ test("thank-you style text does not send an image", async () => {
   });
 
   assert.equal(harness.sentTextAndImages.length, 0);
-  assert.equal(harness.sentTexts.length, 1);
+  assert.equal(harness.sentTexts.length, 0);
+  assert.equal(harness.generatedReplies.length, 0);
 });
 
-test("short confused text does not send an image", async () => {
+test("short unclear text is ignored", async () => {
   const harness = createWebhookApp({
     replyText: "Ma sir lai sodhera bhanxu hai.",
   });
@@ -346,10 +347,11 @@ test("short confused text does not send an image", async () => {
   });
 
   assert.equal(harness.sentTextAndImages.length, 0);
-  assert.equal(harness.sentTexts.length, 1);
+  assert.equal(harness.sentTexts.length, 0);
+  assert.equal(harness.generatedReplies.length, 0);
 });
 
-test("general thesis question does not send an image even with thesis intent", async () => {
+test("general thesis question uses text reply without sending image", async () => {
   const harness = createWebhookApp({
     replyText: "Huncha. Tapai full thesis chahinchha ki proposal matra?",
     deps: {
@@ -383,6 +385,7 @@ test("general thesis question does not send an image even with thesis intent", a
 
   assert.equal(harness.sentTextAndImages.length, 0);
   assert.equal(harness.sentTexts.length, 1);
+  assert.equal(harness.generatedReplies.length, 0);
 });
 
 test("topic guidance question does not send an image", async () => {
@@ -419,9 +422,10 @@ test("topic guidance question does not send an image", async () => {
 
   assert.equal(harness.sentTextAndImages.length, 0);
   assert.equal(harness.sentTexts.length, 1);
+  assert.equal(harness.generatedReplies.length, 0);
 });
 
-test("what to do next question does not send an image", async () => {
+test("what to do next question stays text only", async () => {
   const harness = createWebhookApp({
     replyText: "Tapai ko subject ra level pathaunus. Ani next step bhanchu.",
   });
@@ -443,6 +447,130 @@ test("what to do next question does not send an image", async () => {
 
   assert.equal(harness.sentTextAndImages.length, 0);
   assert.equal(harness.sentTexts.length, 1);
+});
+
+test("subject only message stays text only for MEd", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Med",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /MEd/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("subject only message stays text only for rural development", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Rural development",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /Rural Development/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("short subject aliases do not match unrelated words", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "I need immediate help",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 0);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("unknown non-domain text is ignored", async () => {
+  const harness = createWebhookApp({
+    replyText: "I will confirm and get back to you.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "theaiaaa",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 0);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("suppressed AI reply does not send a message", async () => {
+  const harness = createWebhookApp({
+    deps: {
+      buildDirectReply: () => null,
+      isThesisDomainText: () => true,
+      generateReply: async () => null,
+    },
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Need help with thesis structure",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 0);
+  assert.equal(harness.sentTextAndImages.length, 0);
 });
 
 test("image webhook stores inbound image and sends safe fallback", async () => {
@@ -495,6 +623,31 @@ test("sample image intent sends one caption and one image payload", async () => 
   assert.match(
     harness.sentTextAndImages[0].url,
     /\/media\/thesis-master\/14-sample-request\.png$/
+  );
+});
+
+test("short direct image command still sends one image", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "mba image",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.match(
+    harness.sentTextAndImages[0].url,
+    /\/media\/thesis-master\/02-mba-thesis-support\.png$/
   );
 });
 
@@ -598,7 +751,7 @@ test("banner phrasing sends the pricing creative", async () => {
   );
 });
 
-test("single typo theme word sends the formatting creative", async () => {
+test("theme word alone does not send an image", async () => {
   const harness = createWebhookApp();
 
   await withTestServer(harness.app, async (baseUrl) => {
@@ -616,11 +769,56 @@ test("single typo theme word sends the formatting creative", async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
 
-  assert.equal(harness.sentTextAndImages.length, 1);
-  assert.match(
-    harness.sentTextAndImages[0].url,
-    /\/media\/thesis-master\/01-formatting-support\.png$/
-  );
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+});
+
+test("availability question does not send an image", async () => {
+  const harness = createWebhookApp({
+    replyText: "Huncha. Tapai lai sample image chahinchha bhane pathaidiula.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "image cha?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 0);
+});
+
+test("send sample without image word stays text only", async () => {
+  const harness = createWebhookApp({
+    replyText: "Sample image chahinchha bhane sample pic pathaunu bhanera bhannus.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "send sample",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 0);
 });
 
 test("all photos phrasing sends all images", async () => {
@@ -671,7 +869,7 @@ test("negative photo phrasing does not send an image", async () => {
   });
 
   assert.equal(harness.sentTextAndImages.length, 0);
-  assert.equal(harness.sentTexts.length, 1);
+  assert.equal(harness.sentTexts.length, 0);
 });
 
 test("why did you send photo complaint does not send another image", async () => {
@@ -695,7 +893,7 @@ test("why did you send photo complaint does not send another image", async () =>
   });
 
   assert.equal(harness.sentTextAndImages.length, 0);
-  assert.equal(harness.sentTexts.length, 1);
+  assert.equal(harness.sentTexts.length, 0);
 });
 
 test("duplicate message ids are ignored", async () => {
@@ -728,6 +926,8 @@ test("duplicate message ids are ignored", async () => {
 test("processing errors trigger a concise fallback reply", async () => {
   const harness = createWebhookApp({
     deps: {
+      buildDirectReply: () => null,
+      isThesisDomainText: () => true,
       generateReply: async () => {
         throw new Error("boom");
       },

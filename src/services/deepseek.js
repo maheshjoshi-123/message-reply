@@ -7,17 +7,18 @@ const client = new OpenAI({
   apiKey: config.deepseekApiKey,
   baseURL: `${config.deepseekBaseUrl.replace(/\/+$/, "")}/v1`,
 });
-
-const fallbackReplies = {
-  english: "Thanks for your message. Our team will review and get back shortly.",
-  roman_nepali:
-    "Tapai ko message ko lagi dhanyabad. Hamro team le herera chittai reply garchha.",
-  nepali:
-    "Tapai ko sandesh ko lagi dhanyabad. Hamro team le herera chittai reply garchha.",
-  mixed: "Message ko lagi dhanyabad. Hamro team le herera chittai reply garchha.",
-};
+const timeoutSentinel = Symbol("ai-timeout");
 
 const devanagariRegex = /[\u0900-\u097F]/u;
+const blockedReplyPhrases = [
+  "i will confirm and get back to you",
+  "our team will review and get back",
+  "our team will review",
+  "ma sir lai sodhera bhanxu",
+  "hamro team le herera",
+  "chittai reply garchha",
+  "get back shortly",
+];
 const hindiToNepalStyleReplacements = [
   [/\baapko\b/giu, "tapailai"],
   [/\baap\b/giu, "tapai"],
@@ -25,15 +26,11 @@ const hindiToNepalStyleReplacements = [
   [/\bkar sakte\b/giu, "garna sakchha"],
 ];
 
-export function getFallbackReply(languageStyle) {
-  return fallbackReplies[languageStyle] || fallbackReplies.english;
-}
-
 function normalizeReply(reply, fallbackLanguageStyle) {
   const clean = String(reply || "").replace(/\s+/g, " ").trim();
 
   if (!clean) {
-    return getFallbackReply(fallbackLanguageStyle);
+    return null;
   }
 
   const sentences = clean
@@ -43,24 +40,31 @@ function normalizeReply(reply, fallbackLanguageStyle) {
     .slice(0, 2);
 
   const compact = (sentences.join(" ") || clean).trim();
+  const normalizedCompact = compact.toLowerCase();
+
+  if (blockedReplyPhrases.some((phrase) => normalizedCompact.includes(phrase))) {
+    return null;
+  }
 
   if (
     (fallbackLanguageStyle === "roman_nepali" ||
       fallbackLanguageStyle === "mixed") &&
     devanagariRegex.test(compact)
   ) {
-    return getFallbackReply(fallbackLanguageStyle);
+    return null;
   }
 
   if (fallbackLanguageStyle === "nepali" && devanagariRegex.test(compact)) {
-    return getFallbackReply(fallbackLanguageStyle);
+    return null;
   }
 
   if (fallbackLanguageStyle === "roman_nepali" || fallbackLanguageStyle === "mixed") {
-    return hindiToNepalStyleReplacements.reduce(
+    return hindiToNepalStyleReplacements
+      .reduce(
       (output, [pattern, replacement]) => output.replace(pattern, replacement),
       compact
-    );
+      )
+      .trim();
   }
 
   return compact;
@@ -94,9 +98,15 @@ export async function generateReply({
           languageDetected: languageStyle,
           intentDetected: "timeout_fallback",
         });
-        return null;
+        return timeoutSentinel;
       }
     );
+
+    if (completion === timeoutSentinel) {
+      const timeoutError = new Error("AI request timed out.");
+      timeoutError.code = "AI_TIMEOUT";
+      throw timeoutError;
+    }
 
     const reply = completion?.choices?.[0]?.message?.content;
     return normalizeReply(reply, languageStyle);
@@ -110,6 +120,6 @@ export async function generateReply({
       intentDetected: "error_fallback",
     });
 
-    return currentText ? getFallbackReply(languageStyle) : getFallbackReply("english");
+    throw err;
   }
 }
