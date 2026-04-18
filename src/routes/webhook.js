@@ -7,8 +7,11 @@ import {
   addAssistantMessage,
   addInboundMedia,
   addUserMessage,
+  clearHistory,
+  getConversationState,
   getLanguageStyle,
   getRecentMessages,
+  setConversationState,
   setLanguageStyle,
 } from "../services/memory.js";
 import {
@@ -51,8 +54,11 @@ const defaultDependencies = {
   addAssistantMessage,
   addInboundMedia,
   addUserMessage,
+  clearHistory,
+  getConversationState,
   getLanguageStyle,
   getRecentMessages,
+  setConversationState,
   setLanguageStyle,
   getSampleImage,
   listMedia,
@@ -103,6 +109,16 @@ function resolvePublicBaseUrl(req, configuredBaseUrl) {
 
 function getErrorReply(languageStyle) {
   return errorReplies[languageStyle] || errorReplies.english;
+}
+
+function isConversationResetGreeting(text) {
+  const normalized = String(text || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return ["hello", "hi", "hey", "hy", "namaste", "namaskar"].includes(normalized);
 }
 
 function createProcessingState() {
@@ -184,6 +200,14 @@ export function createWebhookRouter(overrides = {}) {
       ? deps.detectLanguageStyle(extracted.text, previousLanguageStyle)
       : previousLanguageStyle || "english";
 
+    if (
+      extracted.text &&
+      isConversationResetGreeting(extracted.text) &&
+      deps.getRecentMessages(extracted.senderId, 2).length > 0
+    ) {
+      deps.clearHistory(extracted.senderId);
+    }
+
     deps.setLanguageStyle(extracted.senderId, detectedLanguageStyle);
 
     try {
@@ -227,6 +251,7 @@ export function createWebhookRouter(overrides = {}) {
         extracted.senderId,
         deps.config.maxMemoryMessages
       );
+      const conversationState = deps.getConversationState(extracted.senderId);
       const resolvedMedia = deps.resolveMediaForRequest({
         text: extracted.text,
         matchedIntent: matchedPattern?.intent ?? null,
@@ -321,16 +346,24 @@ export function createWebhookRouter(overrides = {}) {
         return;
       }
 
-      const directReply = deps.buildDirectReply({
+      const directResult = deps.buildDirectReply({
         text: extracted.text,
         languageStyle: detectedLanguageStyle,
         matchedPattern,
         recentMessages,
+        conversationState,
       });
 
-      if (directReply) {
-        await deps.sendTextMessage(extracted.senderId, directReply);
-        deps.addAssistantMessage(extracted.senderId, directReply);
+      const directReply =
+        typeof directResult === "string" ? { reply: directResult } : directResult;
+
+      if (directReply?.conversationState) {
+        deps.setConversationState(extracted.senderId, directReply.conversationState);
+      }
+
+      if (directReply?.reply) {
+        await deps.sendTextMessage(extracted.senderId, directReply.reply);
+        deps.addAssistantMessage(extracted.senderId, directReply.reply);
 
         deps.info("Processed message.", {
           messageType: "text",

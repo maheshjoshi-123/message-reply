@@ -19,6 +19,7 @@ function createMemoryHarness() {
     messages: new Map(),
     media: new Map(),
     languageStyles: new Map(),
+    conversation: new Map(),
   };
 
   const ensure = (map, key) => {
@@ -37,8 +38,23 @@ function createMemoryHarness() {
     getRecentMessages(userId, limit = 8) {
       return ensure(state.messages, userId).slice(-limit);
     },
+    getConversationState(userId) {
+      return state.conversation.get(userId) || {};
+    },
+    clearHistory(userId) {
+      state.messages.delete(userId);
+      state.media.delete(userId);
+      state.languageStyles.delete(userId);
+      state.conversation.delete(userId);
+    },
     setLanguageStyle(userId, style) {
       state.languageStyles.set(userId, style);
+    },
+    setConversationState(userId, patch) {
+      state.conversation.set(userId, {
+        ...(state.conversation.get(userId) || {}),
+        ...(patch || {}),
+      });
     },
     addUserMessage(userId, text) {
       ensure(state.messages, userId).push({ role: "user", content: text });
@@ -93,8 +109,11 @@ function createWebhookApp(overrides = {}) {
       ...overrides.config,
     },
     processingState: overrides.processingState,
+    clearHistory: memory.clearHistory,
+    getConversationState: memory.getConversationState,
     getLanguageStyle: memory.getLanguageStyle,
     getRecentMessages: memory.getRecentMessages,
+    setConversationState: memory.setConversationState,
     setLanguageStyle: memory.setLanguageStyle,
     addUserMessage: memory.addUserMessage,
     addAssistantMessage: memory.addAssistantMessage,
@@ -276,7 +295,7 @@ test("app serves root, health, and webhook verification", async () => {
   });
 });
 
-test("text webhook keeps normal AI flow and stores detected language", async () => {
+test("text webhook stores detected language and sends a concise reply", async () => {
   const harness = createWebhookApp({
     replyText: "Hamro team le herera chittai reply garchha.",
   });
@@ -296,8 +315,6 @@ test("text webhook keeps normal AI flow and stores detected language", async () 
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
 
-  assert.equal(harness.generatedReplies.length, 1);
-  assert.equal(harness.generatedReplies[0].languageStyle, "roman_nepali");
   assert.equal(harness.sentTexts.length, 1);
   assert.equal(
     harness.memory.state.languageStyles.get("user-1"),
@@ -328,6 +345,276 @@ test("thank-you style text is ignored", async () => {
   assert.equal(harness.sentTextAndImages.length, 0);
   assert.equal(harness.sentTexts.length, 0);
   assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("greeting resets old context before a new natural request", async () => {
+  const harness = createWebhookApp({
+    replyText:
+      "Huncha. Full thesis support available chha. Tapai ko subject ra deadline pathaunus.",
+  });
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = [
+      "topic",
+      "hi",
+      "I need a thesis to be completely done",
+    ];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `reset-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 3);
+  assert.equal(harness.generatedReplies.length, 0);
+  assert.match(harness.sentTexts[2].text, /full thesis support/i);
+  assert.doesNotMatch(harness.sentTexts[2].text, /topic support/i);
+});
+
+test("subject list question gets a human subject list reply", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "kun kun subject ko hunxa",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /MBA|MBS|MEd/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("subject after subject list stays conversational instead of jumping to price", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["kun kun subject ko hunxa", "med"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `subject-list-followup-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /MEd/i);
+  assert.match(harness.sentTexts[1].text, /Full thesis|proposal/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /25,000|20,000|5,000/i);
+});
+
+test("proposal not ready message gets a natural proposal-start reply", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "proposal baney ko xaina mero",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /proposal/i);
+  assert.match(harness.sentTexts[0].text, /subject|deadline/i);
+  assert.doesNotMatch(harness.sentTexts[0].text, /for proposal|for mero/i);
+});
+
+test("proposal not ready variants with xaina or chhaina stay natural", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["proposal xaina", "proposal chhaina"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `proposal-not-ready-${index + 1}`,
+            text,
+            senderId: `proposal-user-${index + 1}`,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[0].text, /proposal/i);
+  assert.match(harness.sentTexts[1].text, /proposal/i);
+  assert.doesNotMatch(harness.sentTexts[0].text, /for proposal/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /for proposal/i);
+});
+
+test("deadline without subject after proposal request asks for subject first", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["proposal only", "1 month"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `proposal-subject-gap-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /subject|programme|program/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /management|social science/i);
+});
+
+test("combined topic deadline cost query asks for exact subject first", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Lake eutrophication topic. Deadline 1 month cost?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /subject|programme|program/i);
+  assert.doesNotMatch(harness.sentTexts[0].text, /full thesis|proposal only/i);
+});
+
+test("price wording is not mistaken for clarification", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba ko thesis hunxa", "what's the cost"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `price-wording-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /30,000|30000|price|cost/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /what do you mean/i);
+});
+
+test("proposal pricing question gives proposal-aware answer", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "what is the cost for MBA proposal",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /MBA/i);
+  assert.match(harness.sentTexts[0].text, /proposal/i);
+  assert.doesNotMatch(harness.sentTexts[0].text, /exact requirement and I will guide you/i);
+});
+
+test("normal topic price conversation does not send an image", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "price kati ko topic banauna",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 0);
+  assert.equal(harness.sentImages.length, 0);
 });
 
 test("short unclear text is ignored", async () => {
@@ -473,6 +760,34 @@ test("topic follow-up uses recent conversation memory", async () => {
   assert.equal(harness.generatedReplies.length, 0);
 });
 
+test("title only follow-up is handled after topic scope question", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba finance ko lagi topic", "title only"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `title-only-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /title/i);
+  assert.match(harness.sentTexts[1].text, /deadline/i);
+});
+
 test("price follow-up uses recent conversation memory", async () => {
   const harness = createWebhookApp({
     deps: {
@@ -514,6 +829,257 @@ test("price follow-up uses recent conversation memory", async () => {
   assert.match(harness.sentTexts[1].text, /MEd/i);
   assert.match(harness.sentTexts[1].text, /20,000|20000/i);
   assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("english pricing follow-up stays in english after subject reply", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["What's the cost?", "MBA"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `english-price-followup-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /For MBA|MBA thesis support is available/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /huncha|matra|ko/i);
+});
+
+test("affirmative scope reply asks user to choose between full thesis and proposal", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba ko thesis hunxa", "yes"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `scope-yes-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /full thesis|proposal/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /meaning/i);
+});
+
+test("scope follow-up treats only proposal as scope answer", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba finance ko lagi topic", "only proposal"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `scope-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /proposal/i);
+  assert.match(harness.sentTexts[1].text, /deadline/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /for only/i);
+});
+
+test("scope clarification explains previous choice question", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba finance ko lagi topic", "yes"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `clarify-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /topic titles|proposal support/i);
+});
+
+test("deadline clarification explains deadline meaning", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["mba topic", "only proposal", "what"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `deadline-clarify-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 3);
+  assert.match(harness.sentTexts[2].text, /deadline/i);
+  assert.match(harness.sentTexts[2].text, /submission|date|samma/i);
+});
+
+test("science follow-up asks for exact subject instead of confirming", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["full thesis", "on science"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `science-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /exact subject|management|social science/i);
+});
+
+test("unsupported subject candidate after subject prompt does not get ignored", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["science", "biotechnology"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `unsupported-subject-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /management|social science|Exact subject/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("pricing after unsupported subject still asks for exact subject", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["science", "price kati ho"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `unsupported-price-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 2);
+  assert.match(harness.sentTexts[1].text, /subject|programme|program/i);
+  assert.doesNotMatch(harness.sentTexts[1].text, /30,000|25,000|20,000/i);
+});
+
+test("deadline follow-up treats 1 month as timeline not subject", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const messages = ["med", "only proposal", "1 month"];
+
+    for (const [index, text] of messages.entries()) {
+      const response = await fetch(`${baseUrl}/webhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          buildTextWebhook({
+            mid: `timeline-flow-${index + 1}`,
+            text,
+          })
+        ),
+      });
+
+      assert.equal(response.status, 200);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+  });
+
+  assert.equal(harness.sentTexts.length, 3);
+  assert.match(harness.sentTexts[2].text, /timeline|milcha|possible|subject/i);
+  assert.doesNotMatch(harness.sentTexts[2].text, /for 1 month/i);
 });
 
 test("conversation memory stays isolated per sender", async () => {
@@ -581,6 +1147,53 @@ test("what to do next question stays text only", async () => {
   assert.equal(harness.sentTexts.length, 1);
 });
 
+test("analysis request gets a direct text reply", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Do you do statistics analysis?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /analysis/i);
+  assert.match(harness.sentTexts[0].text, /subject|deadline|tool/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("deadline-first message asks for subject and required work", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "deadline 1 month",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /subject|required work/i);
+  assert.equal(harness.generatedReplies.length, 0);
+});
+
 test("subject only message stays text only for MEd", async () => {
   const harness = createWebhookApp();
 
@@ -603,6 +1216,52 @@ test("subject only message stays text only for MEd", async () => {
   assert.equal(harness.sentTexts.length, 1);
   assert.match(harness.sentTexts[0].text, /MEd/i);
   assert.equal(harness.generatedReplies.length, 0);
+});
+
+test("english subject reply stays in english", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "MEd thesis",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /Do you need full thesis or proposal only/i);
+  assert.doesNotMatch(harness.sentTexts[0].text, /huncha|matra|ko/i);
+});
+
+test("natural subject sentence keeps a clean subject label", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Can you do my full thesis for MBA finance?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+
+  assert.equal(harness.sentTexts.length, 1);
+  assert.match(harness.sentTexts[0].text, /MBA/i);
+  assert.doesNotMatch(harness.sentTexts[0].text, /can you do my/i);
 });
 
 test("subject only message stays text only for rural development", async () => {
@@ -756,6 +1415,50 @@ test("sample image intent sends one caption and one image payload", async () => 
     harness.sentTextAndImages[0].url,
     /\/media\/thesis-master\/14-sample-request\.png$/
   );
+});
+
+test("natural english sentence asking for sample image sends one image", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "Can you send a sample image?",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.equal(harness.sentTexts.length, 0);
+});
+
+test("roman nepali image request with polite particle sends one image", async () => {
+  const harness = createWebhookApp();
+
+  await withTestServer(harness.app, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/webhook`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(
+        buildTextWebhook({
+          text: "photo pathaunu na",
+        })
+      ),
+    });
+
+    assert.equal(response.status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  assert.equal(harness.sentTextAndImages.length, 1);
+  assert.equal(harness.sentTexts.length, 0);
 });
 
 test("short direct image command still sends one image", async () => {

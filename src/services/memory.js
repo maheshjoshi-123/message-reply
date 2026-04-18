@@ -9,6 +9,14 @@ function createEmptyUserState() {
     meta: {
       languageStyle: "english",
       lastDetectedLanguageStyle: "english",
+      conversation: {
+        lastAsked: null,
+        serviceType: null,
+        subject: null,
+        subjectTier: null,
+        subjectDisplay: null,
+        deadline: null,
+      },
     },
   };
 }
@@ -101,6 +109,20 @@ export function setLanguageStyle(userId, languageStyle) {
 export function getLanguageStyle(userId) {
   const state = getOrCreateUserState(userId);
   return state.meta.languageStyle || state.meta.lastDetectedLanguageStyle;
+}
+
+export function getConversationState(userId) {
+  return {
+    ...getOrCreateUserState(userId).meta.conversation,
+  };
+}
+
+export function setConversationState(userId, patch = {}) {
+  const state = getOrCreateUserState(userId);
+  state.meta.conversation = {
+    ...state.meta.conversation,
+    ...patch,
+  };
 }
 
 export function clearHistory(userId) {
